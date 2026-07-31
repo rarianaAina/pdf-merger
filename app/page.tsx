@@ -59,40 +59,61 @@ export default function Home() {
       setLoading(false);
     }
   };
+return (
+  <main className="min-h-screen bg-gradient-to-br from-pink-100 via-white to-purple-100 flex items-center justify-center p-6">
+    <div className="w-full max-w-xl rounded-3xl bg-white shadow-2xl p-8">
 
-  return (
-    <main
-      style={{
-        maxWidth: 700,
-        margin: "50px auto",
-        fontFamily: "Arial",
-        textAlign: "center",
-      }}
-    >
-      <h1>Fusionner des PDF avec Rariana le copain de Colombe</h1>
+      <div className="text-center">
+        <div className="text-6xl mb-3">📄💖</div>
 
-      <input
-        type="file"
-        accept="application/pdf"
-        multiple
-        onChange={handleFileChange}
-      />
+        <h1 className="text-3xl font-bold text-pink-600">
+          Fusionner des PDF
+        </h1>
 
-      <div
-        style={{
-          marginTop: 30,
-          textAlign: "left",
-        }}
-      >
+        <p className="text-gray-500 mt-2">
+          Pour Colombe ❤️
+        </p>
+
+        <p className="text-sm text-gray-400 mt-1">
+          Développé par Rariana
+        </p>
+      </div>
+
+      <div className="mt-8">
+        <input
+          type="file"
+          accept="application/pdf"
+          multiple
+          onChange={handleFileChange}
+          className="block w-full rounded-xl border border-pink-300 p-3 file:mr-4 file:rounded-lg file:border-0 file:bg-pink-500 file:px-4 file:py-2 file:text-white hover:file:bg-pink-600 cursor-pointer"
+        />
+      </div>
+
+      <div className="mt-8 rounded-2xl bg-pink-50 p-5 min-h-[150px]">
         {files.length === 0 ? (
-          <p>Aucun fichier sélectionné.</p>
+          <p className="text-center text-gray-500">
+            Aucun fichier sélectionné
+          </p>
         ) : (
           <>
-            <h3>Fichiers sélectionnés</h3>
+            <h3 className="font-semibold text-pink-700 mb-3">
+              Fichiers sélectionnés
+            </h3>
 
-            <ol>
+            <ol className="space-y-2">
               {files.map((file, index) => (
-                <li key={index}>{file.name}</li>
+                <li
+                  key={index}
+                  className="flex items-center justify-between rounded-lg bg-white p-3 shadow"
+                >
+                  <span className="truncate">
+                    📄 {file.name}
+                  </span>
+
+                  <span className="text-xs text-gray-400">
+                    {(file.size / 1024).toFixed(0)} Ko
+                  </span>
+                </li>
               ))}
             </ol>
           </>
@@ -102,15 +123,18 @@ export default function Home() {
       <button
         onClick={mergePDFs}
         disabled={loading || files.length < 2}
-        style={{
-          marginTop: 30,
-          padding: "12px 30px",
-          cursor: "pointer",
-          fontSize: 16,
-        }}
+        className="mt-8 w-full rounded-xl bg-pink-500 py-4 text-lg font-semibold text-white transition hover:bg-pink-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
       >
-        {loading ? "Fusion..." : "Fusionner les PDF"}
+        {loading ? "Fusion en cours..." : "Fusionner les PDF"}
       </button>
-    </main>
-  );
+
+      <p className="mt-6 text-center text-xs text-gray-400">
+        Les fichiers restent sur votre appareil.
+        <br />
+        Aucun document n'est envoyé sur Internet.
+      </p>
+
+    </div>
+  </main>
+);
 }
