@@ -246,7 +246,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-pink-100 via-white to-purple-100 flex items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-xl rounded-3xl bg-white shadow-2xl p-5 sm:p-8">
+      <div className="w-full max-w-xl rounded-3xl bg-white text-gray-900 shadow-2xl p-5 sm:p-8">
 
         <div className="text-center">
           <div className="text-6xl mb-3">📄💖</div>
@@ -334,11 +334,11 @@ export default function Home() {
                     </span>
 
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">
+                      <span className="block truncate text-sm font-medium text-gray-900">
                         {file.name}
                       </span>
 
-                      <span className="block text-xs text-gray-400">
+                      <span className="block text-xs text-gray-500">
                         {kind === "pdf" ? "PDF" : "Photo"} ·{" "}
                         {(file.size / 1024).toFixed(0)} Ko
                       </span>
