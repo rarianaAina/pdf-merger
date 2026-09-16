@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { PDFDocument } from "pdf-lib";
 
@@ -17,6 +17,7 @@ type SelectedFile = {
 const A4: [number, number] = [595.28, 841.89];
 const PAGE_MARGIN = 28; // ≈ 1 cm
 const MAX_IMAGE_SIDE = 2480; // largeur d'un A4 à 300 dpi
+const THUMBNAIL_SIZE = 144; // 48 px affichés × 3 (écran Retina d'iPhone)
 
 // Le FileList du navigateur ne conserve pas forcément l'ordre des clics : on
 // identifie chaque fichier pour pouvoir le réordonner et le retirer.
@@ -53,17 +54,75 @@ const getKind = (file: File): FileKind | null => {
   return null;
 };
 
-// Décode l'image avec le navigateur puis la ré-encode en JPEG : couvre le HEIC
-// des iPhone (que pdf-lib ne lit pas), applique l'orientation EXIF et réduit
-// les photos trop lourdes pour la mémoire de Safari.
-const imageToJpeg = async (file: File) => {
+// Décode l'image avec le navigateur, ce qui couvre le HEIC des iPhone (que
+// pdf-lib ne lit pas) et applique l'orientation EXIF. Une photo de 12 Mpx occupe
+// ~48 Mo une fois décodée : on la libère dès qu'elle a été redessinée.
+const withDecodedImage = async <T,>(
+  file: File,
+  draw: (img: HTMLImageElement) => Promise<T>
+) => {
   const url = URL.createObjectURL(file);
+  const img = new window.Image();
 
   try {
-    const img = new window.Image();
     img.src = url;
     await img.decode();
 
+    return await draw(img);
+  } finally {
+    img.src = "";
+    URL.revokeObjectURL(url);
+  }
+};
+
+const drawToJpeg = async (
+  img: HTMLImageElement,
+  canvasWidth: number,
+  canvasHeight: number,
+  quality: number
+) => {
+  // Dessin en « cover » : l'image remplit le canvas, centrée, rognée si besoin.
+  const scale = Math.max(
+    canvasWidth / img.naturalWidth,
+    canvasHeight / img.naturalHeight
+  );
+  const drawWidth = img.naturalWidth * scale;
+  const drawHeight = img.naturalHeight * scale;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas indisponible");
+
+  // Fond blanc : la transparence d'un PNG deviendrait noire en JPEG.
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvasWidth, canvasHeight);
+  context.drawImage(
+    img,
+    (canvasWidth - drawWidth) / 2,
+    (canvasHeight - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  );
+
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", quality)
+  );
+
+  // Safari iOS ne libère la mémoire du canvas qu'une fois sa taille remise à 0.
+  canvas.width = 0;
+  canvas.height = 0;
+
+  if (!blob) throw new Error("Conversion en JPEG impossible");
+
+  return blob;
+};
+
+// Ré-encode la photo en JPEG pour pdf-lib, réduite à MAX_IMAGE_SIDE.
+const imageToJpeg = (file: File) =>
+  withDecodedImage(file, async (img) => {
     const scale = Math.min(
       1,
       MAX_IMAGE_SIDE / Math.max(img.naturalWidth, img.naturalHeight)
@@ -71,33 +130,20 @@ const imageToJpeg = async (file: File) => {
     const width = Math.round(img.naturalWidth * scale);
     const height = Math.round(img.naturalHeight * scale);
 
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas indisponible");
-
-    // Fond blanc : la transparence d'un PNG deviendrait noire en JPEG.
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, width, height);
-    context.drawImage(img, 0, 0, width, height);
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.9)
-    );
-
-    // Safari iOS ne libère la mémoire du canvas qu'une fois sa taille remise à 0.
-    canvas.width = 0;
-    canvas.height = 0;
-
-    if (!blob) throw new Error("Conversion en JPEG impossible");
+    const blob = await drawToJpeg(img, width, height, 0.9);
 
     return { bytes: await blob.arrayBuffer(), width, height };
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-};
+  });
+
+// Afficher la photo d'origine dans une vignette de 48 px garde toute la photo
+// décodée en mémoire : avec 20 à 30 photos, Safari iOS n'arrive plus à dessiner
+// la page. On génère donc une vraie miniature de quelques Ko.
+const createThumbnail = (file: File) =>
+  withDecodedImage(file, async (img) =>
+    URL.createObjectURL(
+      await drawToJpeg(img, THUMBNAIL_SIZE, THUMBNAIL_SIZE, 0.8)
+    )
+  );
 
 const addPdfPages = async (mergedPdf: PDFDocument, file: File) => {
   const pdf = await PDFDocument.load(await file.arrayBuffer());
@@ -138,6 +184,44 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [outputName, setOutputName] = useState(DEFAULT_OUTPUT_NAME);
   const nextId = useRef(0);
+  const filesRef = useRef(files);
+  const thumbnailQueue = useRef(Promise.resolve());
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  const isStillSelected = (id: string) =>
+    filesRef.current.some((entry) => entry.id === id);
+
+  // Une seule photo décodée à la fois, même si plusieurs sélections s'enchaînent.
+  const queueThumbnails = (entries: SelectedFile[]) => {
+    thumbnailQueue.current = thumbnailQueue.current.then(async () => {
+      for (const { id, file, kind } of entries) {
+        if (kind !== "image" || !isStillSelected(id)) continue;
+
+        let previewUrl: string;
+
+        try {
+          previewUrl = await createThumbnail(file);
+        } catch {
+          // Photo illisible pour le navigateur : l'icône 🖼️ reste affichée.
+          continue;
+        }
+
+        if (!isStillSelected(id)) {
+          URL.revokeObjectURL(previewUrl);
+          continue;
+        }
+
+        setFiles((current) =>
+          current.map((entry) =>
+            entry.id === id ? { ...entry, previewUrl } : entry
+          )
+        );
+      }
+    });
+  };
 
   const handleFileChange = (
     event: React.ChangeEvent<HTMLInputElement>
@@ -164,12 +248,12 @@ export default function Home() {
         id: String(nextId.current++),
         file,
         kind,
-        previewUrl: kind === "image" ? URL.createObjectURL(file) : undefined,
       });
     }
 
     // Les nouvelles sélections s'ajoutent à la fin au lieu de tout écraser.
     setFiles((current) => [...current, ...added]);
+    queueThumbnails(added);
 
     // Permet de re-sélectionner un fichier qui vient d'être retiré.
     event.target.value = "";
