@@ -23,6 +23,20 @@ const MAX_IMAGE_SIDE = 2480; // largeur d'un A4 à 300 dpi
 const fileKey = (file: File) =>
   `${file.name}:${file.size}:${file.lastModified}`;
 
+const DEFAULT_OUTPUT_NAME = "pdf-fusionne";
+
+// Retire l'extension éventuellement saisie et les caractères interdits dans un
+// nom de fichier ; un nom vide retombe sur le nom proposé.
+const toOutputFileName = (name: string) => {
+  const cleaned = name
+    .trim()
+    .replace(/\.pdf$/i, "")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .trim();
+
+  return `${cleaned || DEFAULT_OUTPUT_NAME}.pdf`;
+};
+
 // Certains fichiers venant de l'app Fichiers d'iOS n'ont pas de type MIME.
 const getKind = (file: File): FileKind | null => {
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
@@ -122,6 +136,7 @@ const addImagePage = async (mergedPdf: PDFDocument, file: File) => {
 export default function Home() {
   const [files, setFiles] = useState<SelectedFile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [outputName, setOutputName] = useState(DEFAULT_OUTPUT_NAME);
   const nextId = useRef(0);
 
   const handleFileChange = (
@@ -228,7 +243,7 @@ export default function Home() {
 
       const a = document.createElement("a");
       a.href = url;
-      a.download = "pdf-fusionne.pdf";
+      a.download = toOutputFileName(outputName);
       a.click();
 
       URL.revokeObjectURL(url);
@@ -377,6 +392,36 @@ export default function Home() {
             </>
           )}
         </div>
+
+        {files.length > 0 && (
+          <div className="mt-6">
+            <label
+              htmlFor="output-name"
+              className="block font-semibold text-pink-700"
+            >
+              Nom du fichier fusionné
+            </label>
+
+            <div className="mt-2 flex items-center rounded-xl border border-pink-300 bg-white focus-within:border-pink-500 focus-within:ring-2 focus-within:ring-pink-200">
+              <input
+                id="output-name"
+                type="text"
+                value={outputName}
+                onChange={(event) => setOutputName(event.target.value)}
+                onFocus={(event) => event.target.select()}
+                placeholder={DEFAULT_OUTPUT_NAME}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="done"
+                // 16 px minimum : en dessous, Safari iOS zoome sur le champ.
+                className="min-w-0 flex-1 rounded-xl bg-transparent px-3 py-3 text-base text-gray-900 outline-none"
+              />
+
+              <span className="pr-3 text-base text-gray-500">.pdf</span>
+            </div>
+          </div>
+        )}
 
         <button
           onClick={mergePDFs}
